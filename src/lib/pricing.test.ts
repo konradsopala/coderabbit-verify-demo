@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PROMO_CODES, computeTotals, validatePromo } from './pricing';
+import { PROMO_CODES, computeSetupDiscount, computeTotals, validatePromo } from './pricing';
 
 describe('computeTotals', () => {
   it('returns zeros for an empty cart', () => {
@@ -55,5 +55,28 @@ describe('validatePromo', () => {
   it('enforces the DESK25 minimum subtotal', () => {
     expect(validatePromo('DESK25', 19999).ok).toBe(false);
     expect(validatePromo('DESK25', 20000).ok).toBe(true);
+  });
+});
+
+describe('desk setups', () => {
+  const setup = [
+    { price: 64900, quantity: 1, setupId: 's1' },
+    { price: 18900, quantity: 1, setupId: 's1' },
+    { price: 8900, quantity: 1, setupId: 's1' },
+  ];
+
+  it('takes 10% off items in a setup', () => {
+    expect(computeSetupDiscount(setup)).toBe(9270);
+  });
+
+  it('does not discount items outside a setup', () => {
+    expect(computeSetupDiscount([...setup, { price: 4900, quantity: 2 }])).toBe(9270);
+  });
+
+  it('applies the setup discount before promo codes and tax', () => {
+    const t = computeTotals(setup, 'standard', PROMO_CODES.WELCOME10);
+    expect(t.setupDiscount).toBe(9270);
+    expect(t.discount).toBe(8343);
+    expect(t.tax).toBe(Math.round((92700 - 9270 - 8343) * 0.08));
   });
 });

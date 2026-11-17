@@ -82,6 +82,12 @@ export function ProductPage() {
               {saved ? '♥ Saved' : '♡ Save'}
             </button>
           </div>
+          {product.category === 'desks' && stock > 0 && (
+            <p>
+              <Link to={`/setup-builder?desk=${product.id}`}>Build a setup with this desk</Link> and save 10% on the
+              desk, a keyboard, and a stand.
+            </p>
+          )}
           {inCart > 0 && (
             <p className="muted">
               {inCart} in your cart · <Link to="/cart">View cart</Link>

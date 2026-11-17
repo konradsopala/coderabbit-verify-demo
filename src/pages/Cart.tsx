@@ -4,14 +4,22 @@ import { OrderSummary } from '../components/OrderSummary';
 import { ProductImage } from '../components/ProductImage';
 import { QuantityStepper } from '../components/QuantityStepper';
 import { formatPrice } from '../lib/format';
+import { SETUP_DISCOUNT_RATE } from '../lib/pricing';
+import type { DetailedCartLine } from '../state/StoreContext';
 import { useStore } from '../state/StoreContext';
 
 export function Cart() {
-  const { cart, setQuantity, removeFromCart, stockOf, totalsFor, promoCode, applyPromo, removePromo } = useStore();
+  const { cart, setQuantity, removeFromCart, removeSetup, availableToAdd, totalsFor, promoCode, applyPromo, removePromo } =
+    useStore();
   const navigate = useNavigate();
   const [code, setCode] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
   const totals = totalsFor('standard');
+  const standalone = cart.filter((l) => !l.setupId);
+  const setups = new Map<string, DetailedCartLine[]>();
+  for (const line of cart) {
+    if (line.setupId) setups.set(line.setupId, [...(setups.get(line.setupId) ?? []), line]);
+  }
 
   function submitPromo(e: FormEvent) {
     e.preventDefault();
@@ -44,7 +52,39 @@ export function Cart() {
       <h1>Your cart</h1>
       <div className="two-col">
         <ul className="cart-lines" aria-label="Cart items">
-          {cart.map((line) => (
+          {[...setups].map(([setupId, lines]) => {
+            const value = lines.reduce((s, l) => s + l.lineTotal, 0);
+            const savings = Math.round(value * SETUP_DISCOUNT_RATE);
+            return (
+              <li key={setupId} className="setup-group" data-setup-id={setupId}>
+                <div className="setup-group__head">
+                  <div>
+                    <p className="eyebrow">Desk setup · save {SETUP_DISCOUNT_RATE * 100}%</p>
+                    <p className="setup-group__title">Your desk setup</p>
+                  </div>
+                  <button type="button" className="link-btn link-btn--danger" onClick={() => removeSetup(setupId)}>
+                    Remove setup
+                  </button>
+                </div>
+                <ul className="setup-group__items">
+                  {lines.map((line) => (
+                    <li key={line.productId} className="setup-item">
+                      <ProductImage product={line.product} size="sm" />
+                      <Link to={`/product/${line.productId}`} className="cart-line__name">
+                        {line.product.name}
+                      </Link>
+                      <span>{formatPrice(line.lineTotal)}</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="setup-group__foot">
+                  <span className="summary__row--discount">Setup savings −{formatPrice(savings)}</span>
+                  <strong>{formatPrice(value - savings)}</strong>
+                </div>
+              </li>
+            );
+          })}
+          {standalone.map((line) => (
             <li key={line.productId} className="cart-line" data-product-id={line.productId}>
               <Link to={`/product/${line.productId}`} className="cart-line__image">
                 <ProductImage product={line.product} size="sm" />
@@ -61,7 +101,7 @@ export function Cart() {
               <QuantityStepper
                 label={`Quantity of ${line.product.name}`}
                 value={line.quantity}
-                max={stockOf(line.productId)}
+                max={line.quantity + availableToAdd(line.productId)}
                 onChange={(q) => setQuantity(line.productId, q)}
               />
               <p className="cart-line__total">{formatPrice(line.lineTotal)}</p>

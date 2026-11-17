@@ -46,9 +46,10 @@ export function OrderDetail() {
             <h2 className="h3">Items</h2>
             <ul className="mini-lines mini-lines--spacious" aria-label="Order items">
               {order.lines.map((l) => (
-                <li key={l.productId}>
+                <li key={`${l.setupId ?? ''}${l.productId}`}>
                   <span>
                     {l.quantity} × <Link to={`/product/${l.productId}`}>{l.name}</Link>
+                    {l.setupId && <span className="tag">Desk setup</span>}
                   </span>
                   <span>{formatPrice(l.price * l.quantity)}</span>
                 </li>
