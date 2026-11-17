@@ -19,8 +19,8 @@ export function Home() {
               <Link to="/shop" className="btn btn--primary btn--large">
                 Shop the collection
               </Link>
-              <Link to="/shop?category=desks" className="btn btn--ghost-light btn--large">
-                Browse desks
+              <Link to="/setup-builder" className="btn btn--ghost-light btn--large">
+                Build your setup — save 10%
               </Link>
             </div>
           </div>

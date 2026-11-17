@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { PRODUCTS, getProduct, type Product } from '../data/products';
 import {
+  computeSetupDiscount,
   computeTotals,
   validatePromo,
   type PromoResult,
@@ -22,6 +23,8 @@ const STORAGE_KEY = 'lumen-supply:v1';
 export interface CartLine {
   productId: string;
   quantity: number;
+  /** Set when the line was added as part of a desk setup from the setup builder. */
+  setupId?: string;
 }
 
 export interface OrderLine {
@@ -29,6 +32,13 @@ export interface OrderLine {
   name: string;
   price: number;
   quantity: number;
+  setupId?: string;
+}
+
+export interface SetupSelection {
+  deskId: string;
+  keyboardId: string;
+  standId: string;
 }
 
 export interface CustomerDetails {
@@ -69,6 +79,8 @@ type Action =
   | { type: 'cart/set'; productId: string; quantity: number }
   | { type: 'cart/remove'; productId: string }
   | { type: 'cart/clear' }
+  | { type: 'cart/addSetup'; setupId: string; productIds: string[] }
+  | { type: 'cart/removeSetup'; setupId: string }
   | { type: 'wishlist/toggle'; productId: string }
   | { type: 'promo/set'; code: string | null }
   | { type: 'order/place'; order: Order }
@@ -89,7 +101,7 @@ function loadState(): PersistedState {
     if (!raw) return freshState();
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
     return {
-      cart: Array.isArray(parsed.cart) ? parsed.cart.filter((l) => getProduct(l.productId)) : [],
+      cart: Array.isArray(parsed.cart) ? parsed.cart.flatMap(restoreCartLine) : [],
       wishlist: Array.isArray(parsed.wishlist) ? parsed.wishlist : [],
       orders: Array.isArray(parsed.orders) ? parsed.orders : [],
       inventory: { ...initialInventory(), ...(parsed.inventory ?? {}) },
@@ -100,20 +112,41 @@ function loadState(): PersistedState {
   }
 }
 
+/** Drops lines for unknown products and repairs bad quantities from older or corrupted storage. */
+function restoreCartLine(line: CartLine): CartLine[] {
+  if (!getProduct(line.productId)) return [];
+  const quantity = Math.floor(Number(line.quantity));
+  if (!Number.isFinite(quantity) || quantity < 1) return [];
+  return [{ productId: line.productId, quantity }];
+}
+
+function isStandalone(line: CartLine, productId: string): boolean {
+  return line.productId === productId && !line.setupId;
+}
+
+/** Units of a product in the cart, across standalone lines and setups. */
+function quantityInCart(cart: CartLine[], productId: string): number {
+  return cart.filter((l) => l.productId === productId).reduce((n, l) => n + l.quantity, 0);
+}
+
+/** Clamps a standalone line's quantity to the stock not already taken by setups. */
 function clampToStock(state: PersistedState, productId: string, quantity: number): number {
   const stock = state.inventory[productId] ?? 0;
-  return Math.max(0, Math.min(quantity, stock));
+  const inSetups = state.cart
+    .filter((l) => l.productId === productId && l.setupId)
+    .reduce((n, l) => n + l.quantity, 0);
+  return Math.max(0, Math.min(quantity, stock - inSetups));
 }
 
 function reducer(state: PersistedState, action: Action): PersistedState {
   switch (action.type) {
     case 'cart/add': {
-      const existing = state.cart.find((l) => l.productId === action.productId);
+      const existing = state.cart.find((l) => isStandalone(l, action.productId));
       const wanted = (existing?.quantity ?? 0) + action.quantity;
       const quantity = clampToStock(state, action.productId, wanted);
       if (quantity <= 0) return state;
       const cart = existing
-        ? state.cart.map((l) => (l.productId === action.productId ? { ...l, quantity } : l))
+        ? state.cart.map((l) => (isStandalone(l, action.productId) ? { ...l, quantity } : l))
         : [...state.cart, { productId: action.productId, quantity }];
       return { ...state, cart };
     }
@@ -121,12 +154,22 @@ function reducer(state: PersistedState, action: Action): PersistedState {
       const quantity = clampToStock(state, action.productId, action.quantity);
       const cart =
         quantity <= 0
-          ? state.cart.filter((l) => l.productId !== action.productId)
-          : state.cart.map((l) => (l.productId === action.productId ? { ...l, quantity } : l));
+          ? state.cart.filter((l) => !isStandalone(l, action.productId))
+          : state.cart.map((l) => (isStandalone(l, action.productId) ? { ...l, quantity } : l));
       return { ...state, cart };
     }
     case 'cart/remove':
-      return { ...state, cart: state.cart.filter((l) => l.productId !== action.productId) };
+      return { ...state, cart: state.cart.filter((l) => !isStandalone(l, action.productId)) };
+    case 'cart/addSetup': {
+      const fits = action.productIds.every(
+        (id) => quantityInCart(state.cart, id) + 1 <= (state.inventory[id] ?? 0),
+      );
+      if (!fits) return state;
+      const lines = action.productIds.map((productId) => ({ productId, quantity: 1, setupId: action.setupId }));
+      return { ...state, cart: [...state.cart, ...lines] };
+    }
+    case 'cart/removeSetup':
+      return { ...state, cart: state.cart.filter((l) => l.setupId !== action.setupId) };
     case 'cart/clear':
       return { ...state, cart: [], promoCode: null };
     case 'wishlist/toggle': {
@@ -192,6 +235,9 @@ interface StoreValue {
   addToCart: (productId: string, quantity?: number) => void;
   setQuantity: (productId: string, quantity: number) => void;
   removeFromCart: (productId: string) => void;
+  /** Adds a desk, keyboard, and stand as one setup. Returns false if any item is unavailable. */
+  addSetup: (selection: SetupSelection) => boolean;
+  removeSetup: (setupId: string) => void;
   toggleWishlist: (productId: string) => void;
   applyPromo: (code: string) => PromoResult;
   removePromo: () => void;
@@ -252,31 +298,35 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const cartCount = cart.reduce((n, l) => n + l.quantity, 0);
 
+  const pricedLines = useMemo(
+    () => cart.map((l) => ({ price: l.product.price, quantity: l.quantity, setupId: l.setupId })),
+    [cart],
+  );
+
+  /** Subtotal after setup savings; promo minimums are checked against this. */
+  const promoBase = useMemo(
+    () => pricedLines.reduce((s, l) => s + l.price * l.quantity, 0) - computeSetupDiscount(pricedLines),
+    [pricedLines],
+  );
+
   const promo = useMemo(() => {
     if (!state.promoCode) return null;
-    const subtotal = cart.reduce((s, l) => s + l.lineTotal, 0);
-    const result = validatePromo(state.promoCode, subtotal);
+    const result = validatePromo(state.promoCode, promoBase);
     return result.ok ? result.promo : null;
-  }, [state.promoCode, cart]);
+  }, [state.promoCode, promoBase]);
 
   const stockOf = useCallback((id: string) => state.inventory[id] ?? 0, [state.inventory]);
 
   const availableToAdd = useCallback(
     (id: string) => {
-      const inCart = state.cart.find((l) => l.productId === id)?.quantity ?? 0;
-      return Math.max(0, (state.inventory[id] ?? 0) - inCart);
+      return Math.max(0, (state.inventory[id] ?? 0) - quantityInCart(state.cart, id));
     },
     [state.cart, state.inventory],
   );
 
   const totalsFor = useCallback(
-    (method: ShippingMethodId) =>
-      computeTotals(
-        cart.map((l) => ({ price: l.product.price, quantity: l.quantity })),
-        method,
-        promo,
-      ),
-    [cart, promo],
+    (method: ShippingMethodId) => computeTotals(pricedLines, method, promo),
+    [pricedLines, promo],
   );
 
   const value: StoreValue = {
@@ -312,6 +362,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const product = getProduct(productId);
       if (product) notify(`Removed ${product.name}.`, 'info');
     },
+    addSetup: ({ deskId, keyboardId, standId }) => {
+      const productIds = [deskId, keyboardId, standId];
+      const products = productIds.map(getProduct);
+      if (products.some((p) => !p)) {
+        notify('Choose a desk, keyboard, and stand.', 'error');
+        return false;
+      }
+      const unavailable = products.find((p) => p && availableToAdd(p.id) < 1);
+      if (unavailable) {
+        notify(`${unavailable.name} is not available right now.`, 'error');
+        return false;
+      }
+      const setupId = `setup-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      dispatch({ type: 'cart/addSetup', setupId, productIds });
+      notify('Added your desk setup to the cart — 10% off all three.');
+      return true;
+    },
+    removeSetup: (setupId) => {
+      dispatch({ type: 'cart/removeSetup', setupId });
+      notify('Removed your desk setup.', 'info');
+    },
     toggleWishlist: (productId) => {
       const product = getProduct(productId);
       const saved = state.wishlist.includes(productId);
@@ -319,8 +390,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (product) notify(saved ? `Removed ${product.name} from your wishlist.` : `Saved ${product.name} to your wishlist.`, 'info');
     },
     applyPromo: (code) => {
-      const subtotal = cart.reduce((s, l) => s + l.lineTotal, 0);
-      const result = validatePromo(code, subtotal);
+      const result = validatePromo(code, promoBase);
       if (result.ok) dispatch({ type: 'promo/set', code: result.promo.code });
       return result;
     },
@@ -335,6 +405,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           name: l.product.name,
           price: l.product.price,
           quantity: l.quantity,
+          ...(l.setupId ? { setupId: l.setupId } : {}),
         })),
         customer,
         shippingMethod,

@@ -82,6 +82,9 @@ export function Header() {
           <Link to="/shop?category=desk-essentials" className={navClass(isShop && activeCategory === 'desk-essentials')}>
             Desk essentials
           </Link>
+          <Link to="/setup-builder" className={navClass(location.pathname === '/setup-builder')}>
+            Setup builder
+          </Link>
           <Link to="/orders" className={navClass(location.pathname.startsWith('/orders'))}>
             Orders
           </Link>
@@ -130,6 +133,7 @@ export function Header() {
                 </Link>
               ))}
               <hr />
+              <Link to="/setup-builder">Setup builder</Link>
               <Link to="/orders">Orders</Link>
               <Link to="/wishlist">Wishlist</Link>
               <Link to="/cart">Cart ({cartCount})</Link>

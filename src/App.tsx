@@ -10,6 +10,7 @@ import { NotFound } from './pages/NotFound';
 import { OrderDetail } from './pages/OrderDetail';
 import { Orders } from './pages/Orders';
 import { ProductPage } from './pages/ProductPage';
+import { SetupBuilder } from './pages/SetupBuilder';
 import { Shop } from './pages/Shop';
 import { Wishlist } from './pages/Wishlist';
 
@@ -38,6 +39,7 @@ export function App() {
           <Route path="/checkout" element={<Checkout />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/:id" element={<OrderDetail />} />
+          <Route path="/setup-builder" element={<SetupBuilder />} />
           <Route path="/wishlist" element={<Wishlist />} />
           <Route path="*" element={<NotFound />} />
         </Routes>

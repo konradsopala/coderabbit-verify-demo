@@ -172,9 +172,10 @@ export function Checkout() {
           <h2 className="h3">Your order</h2>
           <ul className="mini-lines">
             {cart.map((l) => (
-              <li key={l.productId}>
+              <li key={`${l.setupId ?? ''}${l.productId}`}>
                 <span>
                   {l.quantity} × {l.product.name}
+                  {l.setupId && <span className="tag">Setup</span>}
                 </span>
                 <span>{formatPrice(l.lineTotal)}</span>
               </li>

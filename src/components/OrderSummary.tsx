@@ -9,13 +9,20 @@ interface Props {
 }
 
 export function OrderSummary({ totals, shippingMethod, promoCode, showFreeShippingHint }: Props) {
-  const remaining = amountToFreeShipping(totals.subtotal - totals.discount);
+  const setupDiscount = totals.setupDiscount ?? 0;
+  const remaining = amountToFreeShipping(totals.subtotal - setupDiscount - totals.discount);
   return (
     <dl className="summary" data-testid="order-summary">
       <div className="summary__row">
         <dt>Subtotal ({totals.itemCount} {totals.itemCount === 1 ? 'item' : 'items'})</dt>
         <dd data-testid="summary-subtotal">{formatPrice(totals.subtotal)}</dd>
       </div>
+      {setupDiscount > 0 && (
+        <div className="summary__row summary__row--discount">
+          <dt>Setup savings</dt>
+          <dd data-testid="summary-setup-discount">−{formatPrice(setupDiscount)}</dd>
+        </div>
+      )}
       {totals.discount > 0 && (
         <div className="summary__row summary__row--discount">
           <dt>Discount{promoCode ? ` (${promoCode})` : ''}</dt>

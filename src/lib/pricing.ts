@@ -2,6 +2,8 @@
 
 export const TAX_RATE = 0.08;
 export const FREE_SHIPPING_THRESHOLD = 15000;
+/** Discount on every item that is part of a desk setup built in the setup builder. */
+export const SETUP_DISCOUNT_RATE = 0.1;
 
 export type ShippingMethodId = 'standard' | 'express';
 
@@ -55,10 +57,15 @@ export function validatePromo(code: string, subtotal: number): PromoResult {
 export interface PricedLine {
   price: number;
   quantity: number;
+  /** Set when the line belongs to a desk setup; such lines get the setup discount. */
+  setupId?: string;
 }
 
 export interface Totals {
   subtotal: number;
+  /** Savings from desk setups. Older orders may not have this field. */
+  setupDiscount?: number;
+  /** Savings from the promo code. */
   discount: number;
   shipping: number;
   tax: number;
@@ -74,15 +81,17 @@ export function computeTotals(
 ): Totals {
   const subtotal = lines.reduce((sum, l) => sum + l.price * l.quantity, 0);
   const itemCount = lines.reduce((sum, l) => sum + l.quantity, 0);
+  const setupDiscount = computeSetupDiscount(lines);
+  const afterSetup = subtotal - setupDiscount;
 
   let discount = 0;
   if (promo?.kind === 'percent') {
-    discount = Math.round((subtotal * promo.value) / 100);
-  } else if (promo?.kind === 'fixed' && subtotal >= promo.minSubtotal) {
-    discount = Math.min(promo.value, subtotal);
+    discount = Math.round((afterSetup * promo.value) / 100);
+  } else if (promo?.kind === 'fixed' && afterSetup >= promo.minSubtotal) {
+    discount = Math.min(promo.value, afterSetup);
   }
 
-  const discounted = subtotal - discount;
+  const discounted = afterSetup - discount;
   const method = SHIPPING_METHODS[shippingMethod];
   const qualifiesForFreeStandard =
     discounted >= FREE_SHIPPING_THRESHOLD || promo?.kind === 'free-shipping';
@@ -94,7 +103,15 @@ export function computeTotals(
   const tax = Math.round(discounted * TAX_RATE);
   const total = discounted + shipping + tax;
 
-  return { subtotal, discount, shipping, tax, total, itemCount, freeShippingApplied };
+  return { subtotal, setupDiscount, discount, shipping, tax, total, itemCount, freeShippingApplied };
+}
+
+/** Total setup savings across all lines that belong to a desk setup. */
+export function computeSetupDiscount(lines: PricedLine[]): number {
+  const setupValue = lines
+    .filter((l) => l.setupId)
+    .reduce((sum, l) => sum + l.price * l.quantity, 0);
+  return Math.round(setupValue * SETUP_DISCOUNT_RATE);
 }
 
 /** How much more (in cents) the shopper must spend to unlock free standard shipping. */

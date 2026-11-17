@@ -55,6 +55,11 @@ These are the flows the store's business depends on. Each one should keep workin
    stock. *Buy again* puts the order's items back into the cart, as far as stock allows.
 10. **Wishlist** — The heart on any product saves it. Saved products appear on the *Wishlist* page and the
     header badge counts them.
+11. **Desk setup builder** — At `/setup-builder` (also linked from the header, the home page, and every desk's
+    product page), choose a desk, a keyboard, and a stand. Sold-out options can't be chosen, and the choices
+    are kept in the URL. *Add setup to cart* adds all three as one setup with 10% off the set. The cart
+    shows the setup as a group with its savings and a *Remove setup* button. The setup and its savings stay
+    in the cart after a reload and carry through checkout, and the order page tags each setup item.
 
 The footer's **Reset demo data** button clears the cart, wishlist, orders, and stock changes.
 
@@ -64,6 +69,8 @@ All amounts are integer cents internally (`src/lib/pricing.ts`).
 
 - **Shipping:** Standard is $7.99 and free when the subtotal after discounts is $150 or more. Express is
   always $19.99.
+- **Desk setups:** 10% off every item in a setup built with the setup builder. Setup savings come off
+  first; promo codes apply to what is left.
 - **Tax:** 8% of the subtotal after discounts. Shipping is not taxed.
 - **Promo codes** (one per order):
 
